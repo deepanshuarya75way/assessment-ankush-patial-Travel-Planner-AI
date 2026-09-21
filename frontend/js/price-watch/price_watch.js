@@ -213,3 +213,181 @@ async function handleDeleteAlert(alertId) {
         alert("Could not remove log entry.");
     }
 }
+
+
+async function searchFlights(flightRequestData) {
+    const response = await fetch(`${API_BASE_URL}/search/flights`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(flightRequestData)
+    });
+    if (!response.ok) throw new Error("Flight search service failed to fetch results.");
+    return await response.json();
+}
+
+/**
+ * Sends a search request payload to the backend to get real-time hotel lists.
+ */
+async function searchHotels(hotelRequestData) {
+    const response = await fetch(`${API_BASE_URL}/search/hotels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(hotelRequestData)
+    });
+    if (!response.ok) throw new Error("Hotel search service failed to fetch results.");
+    return await response.json();
+}
+
+
+
+function renderFlightSearchResults(flightsArray, searchContext) {
+    const resultsContainer = document.getElementById("flight-results-display");
+    if (!resultsContainer) return;
+
+    if (!flightsArray || flightsArray.length === 0) {
+        resultsContainer.innerHTML = `<p class="text-muted">No flights matched your specified filters.</p>`;
+        return;
+    }
+
+    resultsContainer.innerHTML = flightsArray.map((flight, index) => {
+        // Clean numeric sanitizer for setup handling
+        const numericPrice = parseFloat(flight.price.replace(/[^0-9.]/g, '')) || 0;
+
+        return `
+            <div class="card mb-3 shadow-sm border-start border-info border-4" id="search-flight-row-${index}">
+                <div class="card-body d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-3">
+                        <img src="${flight.airline_logo}" alt="${flight.airline}" style="width: 45px; height: 45px; object-fit: contain;" class="rounded border p-1 bg-light">
+                        <div>
+                            <h6 class="mb-1">${flight.airline} <span class="badge bg-light text-dark small">${flight.travel_class}</span></h6>
+                            <p class="mb-1 small text-dark">
+                                <strong>${flight.departure_time}</strong> (${searchContext.origin}) → 
+                                <strong>${flight.arrival_time}</strong> (${searchContext.destination})
+                            </p>
+                            <small class="text-muted d-block">${flight.duration} | ${flight.stops}</small>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex align-items-center gap-4">
+                        <div class="text-end">
+                            <span class="fs-5 fw-bold text-success">INR ${numericPrice}</span>
+                        </div>
+                        
+                        <!-- Notification Track Bell Action Trigger -->
+                        <div class="search-bell-action-wrapper" 
+                             style="cursor: pointer; position: relative;" 
+                             title="Click to track prices for this flight route"
+                             onclick="handleTrackFromSearchResult('${searchContext.origin}', '${searchContext.destination}', '${searchContext.departure_date}', ${numericPrice}, this)">
+                            <span class="bell-icon" style="font-size: 1.6rem; filter: grayscale(100%); transition: all 0.25s ease;">🔔</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+/**
+ * Iterates through a live hotels dataset array and builds accommodation display blocks.
+ */
+function renderHotelSearchResults(hotelsArray, searchContext) {
+    const resultsContainer = document.getElementById("hotel-results-display");
+    if (!resultsContainer) return;
+
+    if (!hotelsArray || hotelsArray.length === 0) {
+        resultsContainer.innerHTML = `<p class="text-muted">No hotel inventories found for this area location.</p>`;
+        return;
+    }
+
+    resultsContainer.innerHTML = hotelsArray.map((hotel, index) => {
+        const numericPrice = parseFloat(hotel.price) || 0;
+
+        return `
+            <div class="card mb-3 shadow-sm" id="search-hotel-row-${index}">
+                <div class="row g-0">
+                    <div class="col-md-4">
+                        <img src="${hotel.image}" class="img-fluid rounded-start h-100 w-100" style="object-fit: cover; max-height: 180px;" alt="${hotel.name}">
+                    </div>
+                    <div class="col-md-8">
+                        <div class="card-body h-100 d-flex flex-column justify-content-between">
+                            <div>
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <h5 class="card-title mb-1">${hotel.name}</h5>
+                                    <span class="badge bg-warning text-dark">⭐ ${hotel.rating}</span>
+                                </div>
+                                <p class="card-text small text-secondary mb-2">${hotel.location}</p>
+                            </div>
+                            
+                            <div class="d-flex justify-content-between align-items-center mt-3">
+                                <div>
+                                    <span class="fs-4 fw-bold text-success">INR ${numericPrice}</span>
+                                    <small class="text-muted d-block" style="font-size: 0.75rem;">per night</small>
+                                </div>
+                                
+                                <!-- Notification Track Bell Action Trigger -->
+                                <div class="search-bell-action-wrapper" 
+                                     style="cursor: pointer;" 
+                                     title="Track price drops for this hotel stay"
+                                     onclick="handleTrackFromSearchResult('${searchContext.location}', '${hotel.name}', '${searchContext.check_in}', ${numericPrice}, this)">
+                                    <span class="bell-icon" style="font-size: 1.6rem; filter: grayscale(100%); transition: all 0.25s ease;">🔔</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+/**
+ * Handles converting a click event on an inventory bell icon into an active database Price Watch tracker rule.
+ */
+async function handleTrackFromSearchResult(origin, destination, travelDate, currentPrice, bellElement) {
+    // Current authenticated traveler context definition mapping placeholder
+    const activeUserId = 1; 
+
+    // Setup configuration object matching backend validation expectations
+    const trackPayload = {
+        user_id: activeUserId,
+        origin: origin.toUpperCase().trim(),
+        destination: destination.trim(),
+        travel_date: travelDate,
+        initial_price: currentPrice,
+        current_price: currentPrice,
+        currency: "INR",
+        is_active: true,
+        // Set up an automatic trigger drop alert threshold condition at a 10% reduction default strategy
+        trigger_percent_drop: 10 
+    };
+
+    try {
+        // Run API service validation route call execution step
+        await CreatePriceWatch(trackPayload);
+        
+        // Transform the bell icon styling inside the UI layout to highlight successful registration
+        const icon = bellElement.querySelector('.bell-icon');
+        if (icon) {
+            icon.style.filter = "none"; // Remove grayscale filter, unlocking glowing yellow status color
+            icon.animate([
+                { transform: 'rotate(0deg)' },
+                { transform: 'rotate(15deg)' },
+                { transform: 'rotate(-15deg)' },
+                { transform: 'rotate(0deg)' }
+            ], { duration: 400, iterations: 1 });
+        }
+        
+        bellElement.style.pointerEvents = "none"; // Disable tracking multiple copies by accident
+        bellElement.setAttribute("title", "Currently active tracking subscription");
+        
+        // Refresh active listings tracking component panels cleanly if accessible on layout screen context
+        if (typeof renderWatchesUI === "function") {
+            renderWatchesUI(activeUserId);
+        }
+
+    } catch (error) {
+        console.error("Failed to map tracker from search node item click context:", error);
+        alert(`Could not configure automatic tracking: ${error.message}`);
+    }
+}
+

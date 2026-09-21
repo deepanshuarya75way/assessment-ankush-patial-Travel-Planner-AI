@@ -60,6 +60,10 @@ from backend.auth.utils import get_current_user
 from backend.database.models import User
 from .price_watch_routes import router as price_watch_routes
 from .alert_routes import router as alert_router
+from.scheduler import (
+    price_watch_loop
+)
+
 
 app = FastAPI(title="Travel Planning API", version="2.0.0")
 

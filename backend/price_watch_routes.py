@@ -108,3 +108,82 @@ def mark_alert_as_read(alert_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_alert)
     return db_alert
+
+
+
+class AlertSettingsUpdateSchema(BaseModel):
+    """Payload to update notification channel preferences from the frontend profile."""
+    email_enabled: Optional[bool] = None
+    web_push_enabled: Optional[bool] = None
+    whatsapp_enabled: Optional[bool] = None
+    alert_on_all_drops: Optional[bool] = None
+    digest_mode: Optional[bool] = None
+
+
+class ScraperPriceUpdatePayload(BaseModel):
+    """Payload received from web scrapers submitting real-time pricing tracking snapshots."""
+    watch_id: int
+    scraped_price: Decimal = Field(..., max_digits=10, decimal_places=2)
+
+
+@router.get("/user/{user_id}/settings", status_code=status.HTTP_200_OK)
+def get_user_alert_settings(user_id: int, db: Session = Depends(get_db)):
+    """
+    Fetch the custom notification channel choices configured by the traveler.
+    """
+    settings = db.query(AlertSettingsORM).filter(AlertSettingsORM.user_id == user_id).first()
+    
+    # If no configuration rule is found in storage memory yet, initialize defaults
+    if not settings:
+        settings = AlertSettingsORM(user_id=user_id)
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+        
+    return settings
+
+
+@router.patch("/user/{user_id}/settings", status_code=status.HTTP_200_OK)
+def update_user_alert_settings(user_id: int, payload: AlertSettingsUpdateSchema, db: Session = Depends(get_db)):
+    """
+    Update notification channels (Email, WhatsApp, Push) from the user profile settings page.
+    """
+    settings = db.query(AlertSettingsORM).filter(AlertSettingsORM.user_id == user_id).first()
+    if not settings:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Settings registry block not found.")
+
+    
+    update_data = payload.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(settings, key, value)
+
+    db.commit()
+    db.refresh(settings)
+    return settings
+
+
+@router.post("/process-update", status_code=status.HTTP_200_OK)
+async def ingest_scraper_price(
+    payload: ScraperPriceUpdatePayload, 
+    background_tasks: BackgroundTasks, 
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint for web scrapers or background workers to submit fresh flight/hotel prices.
+    Evaluates drop logic and fires external notification tasks asynchronously.
+    """
+    # 1. Run core price evaluation business logic rules
+    alert_record = PriceWatchService.process_price_update(
+        db=db, 
+        watch_id=payload.watch_id, 
+        new_scraped_price=payload.scraped_price
+    )
+    
+    # 2. If an alert was generated, hand off delivery to background workers
+    # This prevents the web scraper execution thread from hanging during API calls to SendGrid or Twilio
+    if alert_record:
+        background_tasks.add_task(AlertService.dispatch_alert, db, alert_record)
+        return {"status": "success", "detail": "Price evaluated. Alert triggered and dispatched to background pipeline."}
+
+    return {"status": "success", "detail": "Price updated successfully. No alert conditions were met."}
+

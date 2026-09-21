@@ -86,3 +86,93 @@ def delete_alert(alert_id: int, db: Session = Depends(get_db)):
     db.delete(db_alert)
     db.commit()
     return None
+
+
+
+
+
+class AlertSettingsSchema(BaseModel):
+    id: int
+    user_id: int
+    email_enabled: bool
+    web_push_enabled: bool
+    whatsapp_enabled: bool
+    alert_on_all_drops: bool
+    digest_mode: bool
+
+    class Config:
+        from_attributes = True
+
+
+class AlertSettingsUpdateSchema(BaseModel):
+    """Handles partial updates when toggling switches on the frontend profile UI."""
+    email_enabled: Optional[bool] = None
+    web_push_enabled: Optional[bool] = None
+    whatsapp_enabled: Optional[bool] = None
+    alert_on_all_drops: Optional[bool] = None
+    digest_mode: Optional[bool] = None
+
+
+@router.get("/user/{user_id}/settings", response_model=AlertSettingsSchema)
+def get_user_alert_settings(user_id: int, db: Session = Depends(get_db)):
+    """
+    Fetch the custom notification channel distribution paths configured by the traveler.
+    """
+    settings = db.query(AlertSettingsORM).filter(AlertSettingsORM.user_id == user_id).first()
+    
+    
+    if not settings:
+        settings = AlertSettingsORM(user_id=user_id)
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+        
+    return settings
+
+
+@router.patch("/user/{user_id}/settings", response_model=AlertSettingsSchema)
+def update_user_alert_settings(user_id: int, payload: AlertSettingsUpdateSchema, db: Session = Depends(get_db)):
+    """
+    Dynamically update delivery options (Email, WhatsApp, Push flags) from user profile forms.
+    """
+    settings = db.query(AlertSettingsORM).filter(AlertSettingsORM.user_id == user_id).first()
+    if not settings:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Notification configuration registry block not found for this account."
+        )
+
+   
+    update_data = payload.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(settings, key, value)
+
+    db.commit()
+    db.refresh(settings)
+    return settings
+
+
+@router.post("/user/{user_id}/trigger-digest", status_code=status.HTTP_202_ACCEPTED)
+def trigger_daily_digest_delivery(user_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """
+    Manual override or system cron trigger hook. 
+    Compiles all unread matching tracking drops and dispatches a single summary payload.
+    """
+    settings = db.query(AlertSettingsORM).filter(AlertSettingsORM.user_id == user_id).first()
+    if not settings or not settings.digest_mode:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This traveler profile is not configured to receive system Daily Digest summaries."
+        )
+
+    # Verification check to see if any unread signals exist before wasting third-party network bandwidth
+    unread_alerts_count = db.query(PriceAlertORM).filter(
+        PriceAlertORM.user_id == user_id,
+        PriceAlertORM.is_read == False
+    ).count()
+
+    if unread_alerts_count == 0:
+        return {"status": "skipped", "detail": "No fresh pricing reductions found to bundle for this summary profile."}
+
+    
+    return {"status": "queued", "detail": f"Successfully compiled and queued a summary digest of {unread_alerts_count} drops."}

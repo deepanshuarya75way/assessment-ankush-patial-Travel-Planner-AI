@@ -1,5 +1,19 @@
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
+from datetime import datetime
+from sqlalchemy import ( 
+    Column,
+    String,
+    Integer,
+    Float,
+    Boolean,
+    DateTime
+    ForeignKey
+    text
+
+)
+from sqlalchemy.orm import relationship
+from .database import Base
 
 # ── Flight Models ─────────────────────────────────────────────────────
 
@@ -74,6 +88,33 @@ class PriceAlert(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
      price_watch = relationship("PriceWatchORM", back_populates="alerts")
+
+
+from datetime import datetime
+from sqlalchemy import Column, Integer, Boolean, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
+from .database import Base  # Assuming Base is imported from your core DB architecture
+
+class AlertSettingsORM(Base):
+    __tablename__ = "alert_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+
+   
+    email_enabled = Column(Boolean, default=True, nullable=False)
+    web_push_enabled = Column(Boolean, default=True, nullable=False)
+    whatsapp_enabled = Column(Boolean, default=False, nullable=False)
+    
+   
+    alert_on_all_drops = Column(Boolean, default=True, nullable=False, description="Send alert on any drop vs only when target is hit")
+    digest_mode = Column(Boolean, default=False, nullable=False, description="Bundle alerts into a daily summary email instead of instant spam")
+
+    
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    
+    user = relationship("UserORM", back_populates="alert_settings")
 
 class FlightRequest(BaseModel):
     origin: str
