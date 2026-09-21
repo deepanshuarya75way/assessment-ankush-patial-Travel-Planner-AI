@@ -3,6 +3,78 @@ from pydantic import BaseModel, Field
 
 # ── Flight Models ─────────────────────────────────────────────────────
 
+
+class PriceWatch(Base):
+    __tablename__ = "price_watches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    
+    # Search parameters
+    origin = Column(String(100), nullable=False)
+    destination = Column(String(100), nullable=False)
+    travel_date = Column(DateTime, nullable=False)
+    
+    # Price tracking metrics
+    initial_price = Column(Float, nullable=False)
+    current_price = Column(Float, nullable=False)
+    target_price = Column(Float, nullable=True)  # maps to trigger_threshold_price
+    trigger_percent_drop = Column(Integer, nullable=True)
+    currency = Column(String(10), default="INR", nullable=False)
+
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    # Alert conditions
+    target_currency: Currency = Currency.USD
+    trigger_threshold_price: Optional[Decimal] = Field(
+        None, max_digits=10, decimal_places=2, 
+        description="Alert if price drops below this fixed amount"
+    )
+    trigger_percent_drop: Optional[int] = Field(
+        None, ge=1, le=100, 
+        description="Alert if price drops by X% compared to the initial price"
+    )
+    
+    # Metadata & Tracking
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    initial_price: Decimal = Field(..., max_digits=10, decimal_places=2)
+    price_history: List[PricePoint] = Field(default_factory=list)
+    is_active: bool = True
+
+    @model_validator(mode='after')
+    def validate_dates_and_triggers(self) -> 'PriceWatchConfig':
+        # Ensure return date is after departure date
+        if self.return_date and self.return_date < self.departure_date:
+            raise ValueError("Return date must be after the departure date.")
+        
+        # Ensure at least one alert trigger is provided
+        if self.trigger_threshold_price is None and self.trigger_percent_drop is None:
+            raise ValueError("Must provide either trigger_threshold_price or trigger_percent_drop.")
+            
+        return self
+
+class PriceAlert(Base):
+    __tablename__="price_alerts"
+
+    id=Column(integer,primary_key=True,index=True)
+
+     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    watch_id = Column(Integer, ForeignKey("price_watches.id"), nullable=False, index=True)
+    
+    # Alert Content
+    title = Column(String(255), nullable=False)
+    message = Column(String(500), nullable=False)
+    price = Column(Float, nullable=False, description="The triggered low price")
+    
+    # Status & Metadata
+    is_read = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+     price_watch = relationship("PriceWatchORM", back_populates="alerts")
+
 class FlightRequest(BaseModel):
     origin: str
     destination: str

@@ -58,6 +58,8 @@ from backend.api.blogs import router as blogs_router
 from backend.api.site_feedback import router as site_feedback_router
 from backend.auth.utils import get_current_user
 from backend.database.models import User
+from .price_watch_routes import router as price_watch_routes
+from .alert_routes import router as alert_router
 
 app = FastAPI(title="Travel Planning API", version="2.0.0")
 
@@ -83,6 +85,8 @@ app.include_router(ai_trips_router)
 app.include_router(chat_router, prefix="/api/chat", tags=["Chat"])
 app.include_router(blogs_router, prefix="/api/blogs", tags=["Blogs"])
 app.include_router(site_feedback_router)
+app.include_router(price_watch_router)
+app.include_router(alert_router)
 
 
 # ── Startup: create tables if not already present ───────────────────────────
